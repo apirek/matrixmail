@@ -11,11 +11,10 @@ Messages are send as plain text.
 Requires Python 3.6 or later and [matrix-nio](https://github.com/poljar/matrix-nio).
 
 Copy or symlink to `/usr/bin/mail` and/or `/usr/bin/mailx`.
-Also create a symlink `mail-setup` and run it to log in.
+Run the binary under a different name to log in.
 It will prompt for your login and save the session:
 ```shell
-# ln -s mail mail-setup
-# ./mail-setup
+# (exec -a setup mail)
 Homeserver (default: matrix.org): example.org
 User: alice
 Password: 
