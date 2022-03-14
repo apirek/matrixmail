@@ -8,8 +8,6 @@ echo "the message" | mail -s "the subject" '!jEsUZKDJdhlrceRyVU:example.org'
 Messages are send as plain text.
 
 ## Installation
-Requires Python 3.6 or later and [matrix-nio](https://github.com/poljar/matrix-nio).
-
 Copy or symlink to `/usr/bin/mail` and/or `/usr/bin/mailx`.
 Run the binary under a different name to log in.
 It will prompt for your login and save the session:
