@@ -208,9 +208,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
     });
 
-    let mut message = String::new();
-    tokio::io::stdin().read_to_string(&mut message).await?;
-    message = String::from(message.trim());
+    let mut body = String::new();
+    tokio::io::stdin().read_to_string(&mut body).await?;
+    let message = match args.subject {
+        Some(subject) => format!("{}\n\n{}", subject.trim(), body.trim()),
+        None => String::from(body.trim()),
+    };
 
     synced.notified().await;
 
