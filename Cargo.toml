@@ -8,14 +8,14 @@ name = "mail"
 path = "src/main.rs"
 
 [dependencies]
-clap = { version = "3.1.6", features = ["derive"] }
+clap = { version = "3.1.6", default-features = false, features = ["std", "derive"] }
 gethostname = "0.2.2"
 libc = "0.2.119"
-matrix-sdk = { version = "0.4.1", features = ["encryption"] }
+matrix-sdk = { version = "0.4.1", default-features = false, features = ["encryption", "native-tls", "sled_cryptostore", "sled_state_store"] }
 serde = { version = "1.0.136", features = ["derive"] }
 serde_json = "1.0.79"
 termios = "0.3.3"
-tokio = { version = "1.17.0", features = ["full"] }
+tokio = { version = "1.17.0", features = ["io-std", "io-util", "macros", "fs", "rt-multi-thread", "sync"] }
 
 [profile.release]
 lto = true
