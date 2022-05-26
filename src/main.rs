@@ -29,18 +29,23 @@ use gethostname::gethostname;
 use libc;
 use matrix_sdk::{
     Client,
-    ClientConfig,
-    LoopCtrl,
     room,
     ruma::{
-        DeviceId,
-        events,
-        RoomId,
-        UserId
+        events::{
+            SyncStateEvent,
+            room::{
+                member::{MembershipState, RoomMemberEventContent},
+                message::{RoomMessageEventContent},
+            },
+        },
+        OwnedDeviceId,
+        OwnedRoomId,
+        OwnedUserId,
     },
-    Session,
-    SyncSettings,
+    config::SyncSettings,
     reqwest::Url,
+    Session,
+    store::make_store_config,
 };
 use serde::{Deserialize, Serialize};
 use serde_json;
@@ -56,10 +61,10 @@ use tokio::{
 #[derive(Serialize, Deserialize, Debug)]
 struct Login {
     access_token: String,
-    device_id: Box<DeviceId>,
+    device_id: OwnedDeviceId,
     // Serialize is not implemented for Url
     homeserver: String,
-    user_id: UserId,
+    user_id: OwnedUserId,
 }
 
 
@@ -72,7 +77,7 @@ struct Args {
 
     /// The recipient address
     #[clap(required = true, min_values = 1)]
-    addresses: Vec<RoomId>,
+    addresses: Vec<OwnedRoomId>,
 }
 
 async fn load_login(file: &Path) -> Result<Login, Box<dyn Error>> {
@@ -91,18 +96,18 @@ async fn save_login(file: &Path, login: &Login) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-async fn join_room(client: &Client, room_id: &RoomId) -> Result<room::Joined, Box<dyn Error>> {
+async fn join_room(client: &Client, room_id: &OwnedRoomId) -> Result<room::Joined, Box<dyn Error>> {
     let joined = Arc::new(Notify::new());
     client.register_event_handler({
-        let room_id = room_id.clone();
+        let room_id = room_id.to_owned();
         let user_id = client.user_id().await.unwrap();
         let joined = joined.clone();
-        move |event: events::SyncStateEvent<events::room::member::MemberEventContent>, room: room::Room| {
+        move |event: SyncStateEvent<RoomMemberEventContent>, room: room::Room| {
             let room_id = room_id.clone();
             let user_id = user_id.clone();
             let joined = joined.clone();
             async move {
-                if room.room_id() == &room_id && event.state_key == user_id.to_string() && event.content.membership == events::room::member::MembershipState::Join {
+                if room.room_id() == room_id && *event.state_key() == user_id.to_string() && *event.membership() == MembershipState::Join {
                     joined.notify_one();
                 }
             }
@@ -113,12 +118,12 @@ async fn join_room(client: &Client, room_id: &RoomId) -> Result<room::Joined, Bo
     Ok(client.get_joined_room(room_id).unwrap())
 }
 
-async fn send_message(client: &Client, room_id: &RoomId, message: &str) -> Result<(), Box<dyn Error>> {
+async fn send_message(client: &Client, room_id: &OwnedRoomId, message: &str) -> Result<(), Box<dyn Error>> {
     let room = match client.get_joined_room(room_id) {
         Some(room) => room,
         None => join_room(client, room_id).await?,
     };
-    let content = events::room::message::MessageEventContent::text_plain(message);
+    let content = RoomMessageEventContent::text_plain(message);
     room.send(content, None).await.unwrap();
     Ok(())
 }
@@ -163,7 +168,7 @@ async fn setup(login_file: &Path) -> Result<(), Box<dyn Error>> {
     let display_name = prompt(&format!("Display name (default: {default_display_name}): "))?;
     let display_name = if !display_name.is_empty() { display_name } else { default_display_name };
 
-    let client = Client::new(Url::parse(&homeserver)?)?;
+    let client = Client::new(Url::parse(&homeserver)?).await?;
     let response = client.login(&user, &password, Some(&device_name), Some(&display_name)).await?;
 
     let login = Login {
@@ -191,22 +196,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
 
     let login = load_login(&login_file).await?;
-    let config = ClientConfig::default().store_path(data_dir);
-    let client = Client::new_with_config(Url::parse(&login.homeserver)?, config)?;
+    let client = Client::builder()
+        .homeserver_url(Url::parse(&login.homeserver)?)
+        .store_config(make_store_config(data_dir, None)?)
+        .build().await?;
     client.restore_login(Session { access_token: login.access_token, user_id: login.user_id, device_id: login.device_id }).await?;
 
-    let synced = Arc::new(Notify::new());
-    let sync_task = tokio::spawn({
-        let client = client.clone();
-        let synced = synced.clone();
-        async move {
-            let synced = &synced.clone();
-            client.sync_with_callback(SyncSettings::default(), |_| async move {
-                synced.notify_one();
-                LoopCtrl::Continue
-            }).await
-        }
-    });
+    client.sync_once(SyncSettings::default()).await?;
 
     let mut body = String::new();
     tokio::io::stdin().read_to_string(&mut body).await?;
@@ -215,14 +211,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
         None => String::from(body.trim()),
     };
 
-    synced.notified().await;
-
     for address in &args.addresses {
         send_message(&client, &address, &message).await?;
+        client.sync_once(SyncSettings::default().token(client.sync_token().await.unwrap())).await?;
     }
-
-    sync_task.abort();
-    assert!(sync_task.await.unwrap_err().is_cancelled());
 
     Ok(())
 }
