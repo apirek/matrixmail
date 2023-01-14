@@ -29,7 +29,7 @@ use gethostname::gethostname;
 use libc;
 use matrix_sdk::{
     Client,
-    room,
+    room::{Joined, Room},
     ruma::{
         events::{
             SyncStateEvent,
@@ -96,25 +96,24 @@ async fn save_login(file: &Path, login: &Login) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-async fn join_room(client: &Client, room_id: &OwnedRoomId) -> Result<room::Joined, Box<dyn Error>> {
+async fn join_room(client: &Client, room_id: &OwnedRoomId) -> Result<Joined, Box<dyn Error>> {
     let joined = Arc::new(Notify::new());
-    client.register_event_handler({
-        let room_id = room_id.to_owned();
-        let user_id = client.user_id().await.unwrap();
+    let event_handler = client.add_event_handler({
+        let room_id = room_id.clone();
         let joined = joined.clone();
-        move |event: SyncStateEvent<RoomMemberEventContent>, room: room::Room| {
+        move |event: SyncStateEvent<RoomMemberEventContent>, room: Room, client: Client| {
             let room_id = room_id.clone();
-            let user_id = user_id.clone();
             let joined = joined.clone();
             async move {
-                if room.room_id() == room_id && *event.state_key() == user_id.to_string() && *event.membership() == MembershipState::Join {
+                if room.room_id() == room_id && *event.state_key() == client.user_id().unwrap().to_string() && *event.membership() == MembershipState::Join {
                     joined.notify_one();
                 }
             }
         }
-    }).await;
+    });
     client.join_room_by_id(room_id).await?;
     joined.notified().await;
+    client.remove_event_handler(event_handler);
     Ok(client.get_joined_room(room_id).unwrap())
 }
 
@@ -169,7 +168,12 @@ async fn setup(login_file: &Path) -> Result<(), Box<dyn Error>> {
     let display_name = if !display_name.is_empty() { display_name } else { default_display_name };
 
     let client = Client::new(Url::parse(&homeserver)?).await?;
-    let response = client.login(&user, &password, Some(&device_name), Some(&display_name)).await?;
+    let response = client
+        .login_username(&user, &password)
+        .initial_device_display_name(&display_name)
+        .device_id(&device_name)
+        .send()
+        .await?;
 
     let login = Login {
         access_token: response.access_token,
@@ -200,7 +204,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .homeserver_url(Url::parse(&login.homeserver)?)
         .store_config(make_store_config(data_dir, None)?)
         .build().await?;
-    client.restore_login(Session { access_token: login.access_token, user_id: login.user_id, device_id: login.device_id }).await?;
+    // FIXME Deserialization errors in Store.restore_ression after matrix-sdk update.
+    // Workaround: rm -r ~/.local/share/matrixmail/matrix-sdk-state
+    client.restore_login(Session { access_token: login.access_token, refresh_token: None, user_id: login.user_id, device_id: login.device_id }).await.expect("Error restoring session:");
 
     client.sync_once(SyncSettings::default()).await?;
 
