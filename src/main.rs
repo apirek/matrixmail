@@ -94,7 +94,10 @@ async fn send_message(
     room_id: &OwnedRoomId,
     message: &str,
 ) -> Result<(), Box<dyn Error>> {
-    let room = match client.get_room(room_id).filter(|room| room.state() == RoomState::Joined) {
+    let room = match client
+        .get_room(room_id)
+        .filter(|room| room.state() == RoomState::Joined)
+    {
         Some(room) => room,
         None => client.join_room_by_id(room_id).await?,
     };
@@ -135,21 +138,31 @@ fn gethostname() -> Result<String, io::Error> {
 
 async fn login(store_path: &Path) -> Result<Client, Box<dyn Error>> {
     let default_homeserver = String::from("matrix.org");
-    let homeserver = prompt(&format!("Homeserver (default: {default_homeserver}): "))?;
-    let homeserver = if !homeserver.is_empty() { homeserver } else { default_homeserver };
-    let homeserver = if homeserver.starts_with("https://") || homeserver.starts_with("http://") { homeserver } else { format!("https://{homeserver}") };
+    let homeserver = match prompt(&format!("Homeserver (default: {default_homeserver}): "))? {
+        s if s.is_empty() => default_homeserver,
+        s => s,
+    };
+    let homeserver = if homeserver.starts_with("https://") || homeserver.starts_with("http://") {
+        homeserver
+    } else {
+        format!("https://{homeserver}")
+    };
 
     let user = prompt("User: ")?;
 
     let password = getpass("Password: ")?;
 
     let default_device_name = gethostname().unwrap_or(String::from(""));
-    let device_name = prompt(&format!("Device name (default: {default_device_name}): "))?;
-    let device_name = if !device_name.is_empty() { device_name } else { default_device_name };
+    let device_name = match prompt(&format!("Device name (default: {default_device_name}): "))? {
+        s if s.is_empty() => default_device_name,
+        s => s,
+    };
 
-    let default_display_name = format!("{user}@{device_name}", user=env::var("USER").unwrap());
-    let display_name = prompt(&format!("Display name (default: {default_display_name}): "))?;
-    let display_name = if !display_name.is_empty() { display_name } else { default_display_name };
+    let default_display_name = format!("{user}@{device_name}", user = env::var("USER").unwrap());
+    let display_name = match prompt(&format!("Display name (default: {default_display_name}): "))? {
+        s if s.is_empty() => default_display_name,
+        s => s,
+    };
 
     let client = Client::builder()
         .homeserver_url(Url::parse(&homeserver)?)
@@ -172,7 +185,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
     //tracing_subscriber::fmt::init();
 
     unsafe { libc::umask(0o077) };
-    let data_dir = env::var("XDG_DATA_HOME").and_then(|x| Ok(PathBuf::from(x))).or_else(|_| env::var("HOME").and_then(|x| Ok(PathBuf::from(x).join(".local/share")))).unwrap().join("matrixmail");
+    let data_dir = env::var("XDG_DATA_HOME")
+        .and_then(|x| Ok(PathBuf::from(x)))
+        .or_else(|_| env::var("HOME").and_then(|x| Ok(PathBuf::from(x).join(".local/share"))))
+        .unwrap()
+        .join("matrixmail");
     let session_file = data_dir.join("login");
 
     let arg0 = env::args().nth(0).unwrap();
@@ -202,7 +219,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
         None => String::from(body.trim()),
     };
 
-    let mut session = load_session(&session_file).await.expect("Error loading session");
+    let mut session = load_session(&session_file)
+        .await
+        .expect("Error loading session");
     let client = Client::builder()
         .homeserver_url(Url::parse(&session.homeserver)?)
         .sqlite_store(&data_dir, None)
@@ -218,7 +237,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
             refresh_token: session.refresh_token.clone(),
         },
     };
-    client.restore_session(auth_session).await.expect("Error restoring session");
+    client
+        .restore_session(auth_session)
+        .await
+        .expect("Error restoring session");
 
     // Speed up initial sync for accounts in many rooms.
     let filter = FilterDefinition::with_lazy_loading();
@@ -242,7 +264,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     for address in &args.addresses {
         // Send message.
-        send_message(&client, &address, &message).await.expect(&format!("Error sending message to {}", address));
+        send_message(&client, &address, &message)
+            .await
+            .expect(&format!("Error sending message to {}", address));
         // Sync again.
         loop {
             match client.sync_once(sync_settings.clone()).await {
@@ -261,7 +285,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let auth_session = client.matrix_auth().session().unwrap();
     session.access_token = auth_session.tokens.access_token.clone();
     session.refresh_token = auth_session.tokens.refresh_token.clone();
-    save_session(&session_file, &session).await.expect("Error saving session");
+    save_session(&session_file, &session)
+        .await
+        .expect("Error saving session");
 
     Ok(())
 }
