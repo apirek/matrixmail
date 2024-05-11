@@ -249,18 +249,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
         sync_settings = sync_settings.token(sync_token);
     }
     // Initial sync.
-    loop {
-        match client.sync_once(sync_settings.clone()).await {
-            Ok(response) => {
-                sync_settings = sync_settings.token(response.next_batch.clone());
-                session.sync_token = Some(response.next_batch.clone());
-                break;
-            }
-            Err(_) => {
-                continue;
-            }
-        };
-    }
+    let response = client.sync_once(sync_settings.clone()).await?;
+    sync_settings = sync_settings.token(response.next_batch.clone());
+    session.sync_token = Some(response.next_batch.clone());
 
     for address in &args.addresses {
         // Send message.
@@ -268,18 +259,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
             .await
             .expect(&format!("Error sending message to {}", address));
         // Sync again.
-        loop {
-            match client.sync_once(sync_settings.clone()).await {
-                Ok(response) => {
-                    sync_settings = sync_settings.token(response.next_batch.clone());
-                    session.sync_token = Some(response.next_batch.clone());
-                    break;
-                }
-                Err(_) => {
-                    continue;
-                }
-            };
-        }
+        let response = client.sync_once(sync_settings.clone()).await?;
+        sync_settings = sync_settings.token(response.next_batch.clone());
+        session.sync_token = Some(response.next_batch.clone());
     }
 
     let auth_session = client.matrix_auth().session().unwrap();
