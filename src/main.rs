@@ -130,7 +130,11 @@ fn getpass(message: &str) -> Result<String, io::Error> {
 
 fn gethostname() -> Result<String, io::Error> {
     let mut buffer: Vec<u8> = Vec::with_capacity(libc::_SC_HOST_NAME_MAX.try_into().unwrap());
-    match unsafe { libc::gethostname(buffer.as_mut_ptr() as *mut i8, buffer.capacity()) } {
+    #[cfg(any(target_arch = "aarch64", target_arch = "arm"))]
+    let p = buffer.as_mut_ptr() as *mut u8;
+    #[cfg(not(any(target_arch = "aarch64", target_arch = "arm")))]
+    let p = buffer.as_mut_ptr() as *mut i8;
+    match unsafe { libc::gethostname(p, buffer.capacity()) } {
         0 => Ok(String::from_utf8(buffer).unwrap()),
         _ => Err(io::Error::last_os_error()),
     }
